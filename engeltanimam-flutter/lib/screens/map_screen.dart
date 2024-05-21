@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:location/location.dart';
 
 import '../constants/app_colors.dart';
 import '../cubit/map_cubit.dart';
+import '../widget/route_response_widget.dart';
 
 class MapsScreen extends StatefulWidget {
   final String routeText;
@@ -45,7 +49,8 @@ mixin MapsScreenMixin {
   TextEditingController myLocationController = TextEditingController();
   TextEditingController locationController = TextEditingController();
 
-  Future<void> _onMapCreated(GoogleMapController controller, BuildContext context) async {
+  void _onMapCreated(GoogleMapController controller, BuildContext context) {
+    print("om map created");
     mapController = controller;
     context.read<MapCubit>().mapsControllerInitalize(mapController);
   }
@@ -56,13 +61,27 @@ mixin MapsScreenMixin {
         !context.watch<MapCubit>().isLoading
             ? googleMap(context)
             : const Center(child: CircularProgressIndicator()),
-        topInfo(context),
+        taxiTopInfo(context),
         SafeArea(
           child: IconButton(
             icon: const Icon(Icons.arrow_back_outlined, color: Colors.black),
             onPressed: () => Navigator.pop(context),
           ),
-        )
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+              padding: const EdgeInsets.all(12),
+              color: Colors.red,
+              child: Text(
+                context.watch<MapCubit>().directionMessage,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 24),
+                textAlign: TextAlign.center,
+              )),
+        ),
       ]),
     );
   }
@@ -80,9 +99,25 @@ mixin MapsScreenMixin {
     );
   }
 
+  Widget taxiTopInfo(BuildContext context) {
+    return Visibility(
+      visible: context.watch<MapCubit>().result != null,
+      child: Positioned(
+        top: 0,
+        right: 0,
+        left: 0,
+        child: SafeArea(
+          child:
+              RouteResponseWidget(response: context.watch<MapCubit>().result),
+        ),
+      ),
+    );
+  }
+
   Visibility topInfo(BuildContext context) {
     return Visibility(
-      visible: MediaQuery.of(context).viewInsets.bottom <= 0,
+      visible: MediaQuery.of(context).viewInsets.bottom <= 0 &&
+          context.watch<MapCubit>().result != null,
       child: const Positioned(
         top: 0,
         right: 0,
