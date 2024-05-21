@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,10 +11,11 @@ import 'package:location/location.dart';
 import '../constants/app_colors.dart';
 
 class MapCubit extends Cubit<MapState> {
+  final String routeText;
   GoogleMapController? mapController;
   bool isLoading = true;
   PolylinePoints polylinePoints = PolylinePoints();
-  String googleAPiKey = "AIzaSyCBWnZj5N6sGEpN-HzAPO5MZdSHspnDmZc";
+  String googleAPiKey = "AIzaSyBChasi4i5uXfZSnwh5mvZWIN-d8yV7cto";
   Map<PolylineId, Polyline> polylines = {};
   Set<Marker> allMarkers = {};
   Set<Marker> markers = {};
@@ -19,9 +23,46 @@ class MapCubit extends Cubit<MapState> {
   BuildContext context;
   AnimationController animationController;
 
-  MapCubit(this.context,this.animationController)
-      : super(MapInitialState()) {
-    getCurrentLocation();
+  MapCubit(this.context, this.routeText, this.animationController)
+      : super(MapInitialState());
+
+  Future<void> getRoute() async {
+    const baseUrl =
+        "https://maps.googleapis.com/maps/api/place/textsearch/json?";
+
+    final Dio dio = Dio();
+
+    final response = await dio.get(baseUrl, queryParameters: {
+      'query': routeText,
+      'key': googleAPiKey,
+    });
+
+    if (response.statusCode == 200) {
+      // API'den gelen yanıtı işleme
+      final responseData = response.data;
+      if (responseData != null && responseData['results'].isNotEmpty) {
+        final formattedAddress =
+            responseData['results'][0]['formatted_address'];
+        final location = responseData['results'][0]['geometry']['location'];
+        final result = {
+          "latitude": location['lat'],
+          "longitude": location['lng'],
+          "formatted_address": formattedAddress,
+        };
+
+        // JSON sonucunu ekrana yazdırma
+        print(jsonEncode(result));
+
+        // Yol oluşturma
+        addMarker(LatLng(location['lat'], location['lng']));
+        await polyWalk(LatLng(location['lat'], location['lng']));
+        await _zoomToMarkers(
+            LatLng(currentLocation!.latitude!, currentLocation!.longitude!),
+            LatLng(location['lat'], location['lng']));
+      } else {
+        print(jsonEncode({"error": "Sonuç bulunamadı."}));
+      }
+    }
   }
 
   Future<void> getCurrentLocation() async {
@@ -47,6 +88,7 @@ class MapCubit extends Cubit<MapState> {
 
     location.getLocation().then((value) async {
       currentLocation = value;
+      await getRoute();
       emit(MapLocationState(currentLocation!));
       changeLoadingView();
     });
@@ -59,20 +101,15 @@ class MapCubit extends Cubit<MapState> {
   }
 
   void addMarker(LatLng position) {
-    if (markers.length < 2) {
-      Marker marker = Marker(
-        markerId: MarkerId('${position.latitude}-${position.longitude}'),
-        position: position,
-        onTap: () {
-          removeMarker(MarkerId('${position.latitude}-${position.longitude}'));
-        },
-      );
-      markers.add(marker);
-      allMarkers.add(marker);
-      //changeButtonText(true);
-    } else {
-      //changeButtonText(false);
-    }
+    Marker marker = Marker(
+      markerId: MarkerId('${position.latitude}-${position.longitude}'),
+      position: position,
+      onTap: () {
+        removeMarker(MarkerId('${position.latitude}-${position.longitude}'));
+      },
+    );
+    markers.add(marker);
+    allMarkers.add(marker);
   }
 
   void removeMarker(MarkerId markerId) {
@@ -119,30 +156,6 @@ class MapCubit extends Cubit<MapState> {
     return;
   }
 
-  Future<void> poly(bool isCurrentLocation) async {
-    List<LatLng> polylineCoordinates = [];
-    PolylineResult result;
-    if (isCurrentLocation) {
-      result = await polylinePoints.getRouteBetweenCoordinates(
-        googleAPiKey,
-        PointLatLng(currentLocation!.latitude!, currentLocation!.longitude!),
-        PointLatLng(markers.elementAt(0).position.latitude,
-            markers.elementAt(0).position.longitude),
-        travelMode: TravelMode.driving,
-      );
-    } else {
-      result = await polylinePoints.getRouteBetweenCoordinates(
-        googleAPiKey,
-        PointLatLng(markers.elementAt(0).position.latitude,
-            markers.elementAt(0).position.longitude),
-        PointLatLng(markers.elementAt(1).position.latitude,
-            markers.elementAt(1).position.longitude),
-        travelMode: TravelMode.driving,
-      );
-    }
-    addPolyLine(polylineCoordinates);
-  }
-
   addPolyLine(List<LatLng> polylineCoordinates) {
     PolylineId id = const PolylineId("poly");
     Polyline polyline = Polyline(
@@ -154,22 +167,32 @@ class MapCubit extends Cubit<MapState> {
     polylines[id] = polyline;
   }
 
-  void _zoomToPolygon(LatLng firstMarkerPosition, LatLng secondMarkerPosition) {
-    if (mapController != null) {
-      List<LatLng> points = [];
-      polylines.forEach((key, value) {
-        points.addAll(value.points);
-      });
-      LatLngBounds bounds = _calculateBoundsWithPolygon(points);
-      // Yeni bir LatLngBounds oluştururken, üst kısmına 400 piksel ekleyelim
-      double topPadding = 100.0;
-      LatLngBounds paddedBounds = LatLngBounds(
-        southwest: LatLng(bounds.southwest.latitude, bounds.southwest.longitude),
-        northeast: LatLng(bounds.northeast.latitude + (topPadding / 111000), bounds.northeast.longitude),
-      );
+  Future<void> _zoomToMarkers(
+      LatLng firstMarkerPosition, LatLng secondMarkerPosition) async {
+    // İki konumun sınırlarını belirle
+    LatLngBounds bounds = LatLngBounds(
+      southwest: LatLng(
+        firstMarkerPosition.latitude < secondMarkerPosition.latitude
+            ? firstMarkerPosition.latitude
+            : secondMarkerPosition.latitude,
+        firstMarkerPosition.longitude < secondMarkerPosition.longitude
+            ? firstMarkerPosition.longitude
+            : secondMarkerPosition.longitude,
+      ),
+      northeast: LatLng(
+        firstMarkerPosition.latitude > secondMarkerPosition.latitude
+            ? firstMarkerPosition.latitude
+            : secondMarkerPosition.latitude,
+        firstMarkerPosition.longitude > secondMarkerPosition.longitude
+            ? firstMarkerPosition.longitude
+            : secondMarkerPosition.longitude,
+      ),
+    );
 
-      mapController!.animateCamera(CameraUpdate.newLatLngBounds(paddedBounds, 10));
-    }
+    // Harita kamerasını belirtilen sınırlara yakınlaştır
+    await mapController!
+        .animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
+    print("zoomlandı");
   }
 
   LatLngBounds _calculateBoundsWithPolygon(List<LatLng> polygonPoints) {
@@ -191,7 +214,8 @@ class MapCubit extends Cubit<MapState> {
       }
     }
 
-    return LatLngBounds(northeast: LatLng(maxLat, maxLng), southwest: LatLng(minLat, minLng));
+    return LatLngBounds(
+        northeast: LatLng(maxLat, maxLng), southwest: LatLng(minLat, minLng));
   }
 
   void changeLoadingView() {
@@ -201,6 +225,7 @@ class MapCubit extends Cubit<MapState> {
 
   void mapsControllerInitalize(GoogleMapController mapController) {
     this.mapController = mapController;
+    print(this.mapController != null);
   }
 }
 
@@ -232,4 +257,3 @@ class MapRemoveMarkerState extends MapState {
 
   MapRemoveMarkerState(this.polylines, this.markers);
 }
-

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:taksimetre_mobile/constants/app_colors.dart';
+import 'app_colors.dart';
 
 //const kPrimaryColor = Color(0xFF6F35A5);
 const kPrimaryColor = AppColors.secondaryAccent;
