@@ -88,21 +88,22 @@ class _RouteResponseWidgetState extends State<RouteResponseWidget>
                         children: [
                           FittedBox(
                             fit: BoxFit.scaleDown,
-                            child: Text(e.duration.toString(),
+                            child: Text(e.durationText.toString(),
                                 style: const TextStyle(
-                                    fontSize: 26,
+                                    fontSize: 24,
                                     color: AppColors.headerTextColor,
                                     fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.visible,
                                 maxLines: 1),
                           ),
                           const SizedBox(width: 6),
-                          Text("(${e.distance})",
+                          Text("(${e.distanceText})",
                               style: TextStyle(
                                   color: Colors.grey.shade700, fontSize: 14)),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      walkWidget(e.recipe),
+                      walkWidget(e.htmlInstructions),
                       const SizedBox(height: 12)
                     ],
                   ),
@@ -194,7 +195,7 @@ class _RouteResponseWidgetState extends State<RouteResponseWidget>
                         return Column(
                           children: [
                             const SizedBox(height: 6),
-                            walkWidget(e.recipe),
+                            walkWidget(e.htmlInstructions),
                             const SizedBox(height: 6),
                             const Divider(thickness: 2,)
                           ],

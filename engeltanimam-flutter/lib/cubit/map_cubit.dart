@@ -37,6 +37,14 @@ class MapCubit extends Cubit<MapState> {
     getCurrentLocation();
   }
 
+  Future<void> followRouteSteps(List<RouteStepModel> steps) async {
+    for (final step in steps) {
+      await polyWalk(step.startLocation);
+      emit(MapStepsChangeState(step,polylinePoints));
+      print("step ${step.startLocation.latitude}");
+    }
+  }
+
   Future<void> getRouteSteps(String origin, String destination) async {
     const baseUrl = "https://maps.googleapis.com/maps/api/directions/json?";
 
@@ -58,29 +66,18 @@ class MapCubit extends Cubit<MapState> {
         final steps = responseData['routes'][0]['legs'][0]['steps'];
         final stepsList = <RouteStepModel>[];
         for (final step in steps) {
-          final distanceMeters = step['distance']['value'];
-          final durationSeconds = step['duration']['value'];
-
-          final arrSteps =
-              distanceAndDurationCalculator(distanceMeters, durationSeconds);
-
-          final recipe = stripTags(step['html_instructions']); // text hali
-          stepsList.add(
-            RouteStepModel(
-              distance: arrSteps[0].toString(),
-              duration: arrSteps[1].toString(),
-              recipe: recipe,
-            ),
-          );
+          final stepModel = RouteStepModel.fromJson(step);
+          stepsList.add(stepModel);
         }
+        print("${stepsList.length}  aaaaa");
         result = RouteResponseModel(
           distance: arr[0].toString(),
           duration: arr[1].toString(),
           steps: stepsList,
         );
         print(result!.steps.length);
-
         emit(MapResultState(result!));
+        await followRouteSteps(result!.steps);
       } else {
         print('error : Rota bulunamadı.');
       }
@@ -89,28 +86,17 @@ class MapCubit extends Cubit<MapState> {
     }
   }
 
-  List<dynamic> distanceAndDurationCalculator(
-      int distanceMeters, int durationSeconds) {
-    final distanceKilometers = distanceMeters / 1000;
-    final durationMinutes = (durationSeconds / 60).round();
-
-    return [distanceKilometers, durationMinutes];
-  }
-
-  String stripTags(String html) {
-    return html.replaceAll(RegExp(r'<[^>]*>'), '');
-  }
-
   Future<void> getRoute() async {
     const baseUrl =
         "https://maps.googleapis.com/maps/api/place/textsearch/json?";
 
     final Dio dio = Dio();
-
+    print("${baseUrl}query=$routeText&key=$googleAPiKey");
     final response = await dio.get(baseUrl, queryParameters: {
       'query': routeText,
       'key': googleAPiKey,
     });
+    print(response.realUri.toString());
 
     if (response.statusCode == 200) {
       // API'den gelen yanıtı işleme
@@ -130,70 +116,42 @@ class MapCubit extends Cubit<MapState> {
 
         // Yol oluşturma
         addMarker(LatLng(location['lat'], location['lng']));
-        await polyWalk(LatLng(location['lat'], location['lng']));
+        //await polyWalk(LatLng(location['lat'], location['lng']));
         await _initPositionTracking();
+        await _zoomToRoute(
+          LatLng(currentLocation!.latitude!, currentLocation!.longitude!),
+        );
+        await _startTrackingUser();
         await getRouteSteps(
             "${currentLocation!.latitude!},${currentLocation!.longitude!}",
             "${location['lat']},${location['lng']}");
-        await _startTrackingUser();
       } else {
         print(jsonEncode({"error": "Sonuç bulunamadı."}));
       }
     }
   }
 
-  Future<void> _startTrackingUser() async {
-    Location location = Location();
-    locationSubscription = location.onLocationChanged.listen((locationData) {
-      _checkIfUserIsOffRoute(locationData);
-    });
-  }
-
-  Future<void> _checkIfUserIsOffRoute(LocationData locationData) async {
-    LatLng currentPosition =
-        LatLng(locationData.latitude!, locationData.longitude!);
-    double distance = await _calculateDistanceToPolyline(currentPosition);
-
-    if (previousPosition != null) {
-      if (distance > 20) {
-        // 20 metre sapma toleransı
-        _showUserOffRouteAlert(currentPosition);
-      } else {
-        isAlertShown = false; // Sapma düzeltildiğinde bayrağı sıfırla
-      }
-      previousPosition = currentPosition;
-    } else {
-      previousPosition = currentPosition;
+  Future<void> _initPositionTracking() async {
+    try {
+      positionStreamSubscription = geo.Geolocator.getPositionStream(
+        locationSettings: const geo.LocationSettings(
+          accuracy: geo.LocationAccuracy.best, // geo. prefixini kaldırın
+          distanceFilter: 10, // metre cinsinden minimum hareket mesafesi
+        ),
+      ).listen((geo.Position position) async {
+        // Kullanıcının yeni konumu alındığında yönelimi güncelle
+        _currentBearing =
+            position.heading ?? 0; // position.heading null kontrolü ekleyin
+      });
+    } catch (e) {
+      print("Position tracking error: $e");
     }
-  }
-
-  Future<double> _calculateDistanceToPolyline(LatLng position) async {
-    double minDistance = double.infinity;
-
-    for (Polyline polyline in polylines.values) {
-      for (LatLng point in polyline.points) {
-        double distance = geo.Geolocator.distanceBetween(
-          position.latitude,
-          position.longitude,
-          point.latitude,
-          point.longitude,
-        );
-        if (distance < minDistance) {
-          minDistance = distance;
-        }
-      }
-    }
-
-    return minDistance;
   }
 
   void _showUserOffRouteAlert(LatLng currentPosition) {
-    if (!isAlertShown) {
-      directionMessage = _calculateDirectionMessage(currentPosition);
-      print(directionMessage);
-      isAlertShown = true; // Alert gösterildiğini işaretle
-      emit(MapDirectionChange(directionMessage));
-    }
+    directionMessage = _calculateDirectionMessage(currentPosition);
+    print(directionMessage);
+    emit(MapDirectionChange(directionMessage));
   }
 
   String _calculateDirectionMessage(LatLng currentPosition) {
@@ -291,38 +249,6 @@ class MapCubit extends Cubit<MapState> {
     });
   }
 
-  Future<BitmapDescriptor> getCustomMarkerIcon(String imagePath) async {
-    final ByteData byteData = await rootBundle.load(imagePath);
-    final Uint8List imageData = byteData.buffer.asUint8List();
-    return BitmapDescriptor.fromBytes(imageData);
-  }
-
-  void addMarker(LatLng position) {
-    Marker marker = Marker(
-      markerId: MarkerId('${position.latitude}-${position.longitude}'),
-      position: position,
-      onTap: () {
-        removeMarker(MarkerId('${position.latitude}-${position.longitude}'));
-      },
-    );
-    markers.add(marker);
-    allMarkers.add(marker);
-  }
-
-  void removeMarker(MarkerId markerId) {
-    markers.removeWhere((element) => element.markerId == markerId);
-    allMarkers.removeWhere((element) => element.markerId == markerId);
-    polylines = {};
-    emit(MapRemoveMarkerState(polylines, markers));
-  }
-
-  void removeMarkerAll() {
-    allMarkers.removeAll(markers);
-    markers = {};
-    polylines = {};
-    emit(MapRemoveMarkerState(polylines, markers));
-  }
-
   Future<void> polyWalk(LatLng e) async {
     List<LatLng> polylineCoordinates = [];
 
@@ -364,32 +290,43 @@ class MapCubit extends Cubit<MapState> {
     polylines[id] = polyline;
   }
 
-  Future<void> _initPositionTracking() async {
-    try {
-      positionStreamSubscription = geo.Geolocator.getPositionStream(
-        locationSettings: const geo.LocationSettings(
-          accuracy: geo.LocationAccuracy.best, // geo. prefixini kaldırın
-          distanceFilter: 10, // metre cinsinden minimum hareket mesafesi
-        ),
-      ).listen((geo.Position position) async {
-        // Kullanıcının yeni konumu alındığında yönelimi güncelle
-        _currentBearing =
-            position.heading ?? 0; // position.heading null kontrolü ekleyin
-        await _zoomToRoute(
-          LatLng(currentLocation!.latitude!, currentLocation!.longitude!),
-        );
-      });
-    } catch (e) {
-      print("Position tracking error: $e");
-    }
+  Future<BitmapDescriptor> getCustomMarkerIcon(String imagePath) async {
+    final ByteData byteData = await rootBundle.load(imagePath);
+    final Uint8List imageData = byteData.buffer.asUint8List();
+    return BitmapDescriptor.fromBytes(imageData);
+  }
+
+  void addMarker(LatLng position) {
+    Marker marker = Marker(
+      markerId: MarkerId('${position.latitude}-${position.longitude}'),
+      position: position,
+      onTap: () {
+        removeMarker(MarkerId('${position.latitude}-${position.longitude}'));
+      },
+    );
+    markers.add(marker);
+    allMarkers.add(marker);
+  }
+
+  void removeMarker(MarkerId markerId) {
+    markers.removeWhere((element) => element.markerId == markerId);
+    allMarkers.removeWhere((element) => element.markerId == markerId);
+    polylines = {};
+    emit(MapRemoveMarkerState(polylines, markers));
+  }
+
+  void removeMarkerAll() {
+    allMarkers.removeAll(markers);
+    markers = {};
+    polylines = {};
+    emit(MapRemoveMarkerState(polylines, markers));
   }
 
   Future<void> _zoomToRoute(LatLng userPosition) async {
-    // Kullanıcının konumu ve baktığı yöne göre haritayı döndür
     CameraPosition cameraPosition = CameraPosition(
       target: userPosition,
-      zoom: 19, // Yakınlaştırma seviyesini ayarlayabilirsiniz
-      tilt: 60, // Kullanıcının bakış açısını temsil eden tilt değeri
+      zoom: 15, // Yakınlaştırma seviyesini ayarlayabilirsiniz
+      tilt: 30, // Kullanıcının bakış açısını temsil eden tilt değeri
       bearing: _currentBearing,
     );
 
@@ -398,27 +335,61 @@ class MapCubit extends Cubit<MapState> {
         .animateCamera(CameraUpdate.newCameraPosition(cameraPosition));
   }
 
-  LatLngBounds _calculateBoundsWithPolygon(List<LatLng> polygonPoints) {
-    double minLat = polygonPoints[0].latitude;
-    double maxLat = polygonPoints[0].latitude;
-    double minLng = polygonPoints[0].longitude;
-    double maxLng = polygonPoints[0].longitude;
+  Future<void> _startTrackingUser() async {
+    Location location = Location();
+    locationSubscription = location.onLocationChanged.listen((locationData) {
+      _checkIfUserIsOffRoute(locationData);
+    });
+  }
 
-    for (int i = 1; i < polygonPoints.length; i++) {
-      if (polygonPoints[i].latitude > maxLat) {
-        maxLat = polygonPoints[i].latitude;
-      } else if (polygonPoints[i].latitude < minLat) {
-        minLat = polygonPoints[i].latitude;
+  List<dynamic> distanceAndDurationCalculator(
+      int distanceMeters, int durationSeconds) {
+    final distanceKilometers = distanceMeters / 1000;
+    final durationMinutes = (durationSeconds / 60).round();
+
+    return [distanceKilometers, durationMinutes];
+  }
+
+  String stripTags(String html) {
+    return html.replaceAll(RegExp(r'<[^>]*>'), '');
+  }
+
+  Future<void> _checkIfUserIsOffRoute(LocationData locationData) async {
+    LatLng currentPosition =
+        LatLng(locationData.latitude!, locationData.longitude!);
+    double distance = await _calculateDistanceToPolyline(currentPosition);
+
+    if (previousPosition != null) {
+      if (distance > 20) {
+        // 20 metre sapma toleransı
+        _showUserOffRouteAlert(currentPosition);
+      } else {
+        isAlertShown = false; // Sapma düzeltildiğinde bayrağı sıfırla
       }
-      if (polygonPoints[i].longitude > maxLng) {
-        maxLng = polygonPoints[i].longitude;
-      } else if (polygonPoints[i].longitude < minLng) {
-        minLng = polygonPoints[i].longitude;
+      previousPosition = currentPosition;
+    } else {
+      previousPosition = currentPosition;
+    }
+  }
+
+  Future<double> _calculateDistanceToPolyline(LatLng position) async {
+    double minDistance = double.infinity;
+
+    for (Polyline polyline in polylines.values) {
+      for (LatLng point in polyline.points) {
+        double distance = geo.Geolocator.distanceBetween(
+          position.latitude,
+          position.longitude,
+          point.latitude,
+          point.longitude,
+        );
+        if (distance < minDistance) {
+          minDistance = distance;
+        }
       }
     }
 
-    return LatLngBounds(
-        northeast: LatLng(maxLat, maxLng), southwest: LatLng(minLat, minLng));
+    return minDistance;
   }
 
   void changeLoadingView() {
@@ -471,4 +442,10 @@ class MapDirectionChange extends MapState {
   final String directionText;
 
   MapDirectionChange(this.directionText);
+}
+class MapStepsChangeState extends MapState {
+  final RouteStepModel routeStepModel;
+  final PolylinePoints polylinePoints;
+
+  MapStepsChangeState(this.routeStepModel, this.polylinePoints);
 }
