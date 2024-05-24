@@ -1,5 +1,4 @@
 import 'package:engeltanimam/screens/home_screen.dart';
-import 'package:engeltanimam/screens/map_screen.dart';
 import 'package:flutter/material.dart';
 
 import 'constants/app_colors.dart';

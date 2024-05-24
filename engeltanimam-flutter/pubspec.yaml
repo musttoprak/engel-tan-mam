@@ -23,6 +23,7 @@ dependencies:
   permission_handler: ^9.1.0
   flutter_tts: ^3.3.0
   geolocator: ^11.0.0
+  vibration: ^1.7.3
 
   cupertino_icons: ^1.0.2
 
@@ -33,5 +34,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # assets:
-  #   - images/a_dot_burr.jpeg
+  assets:
+   - assets/location.png

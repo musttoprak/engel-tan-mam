@@ -1,9 +1,7 @@
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:location/location.dart';
 
 import '../constants/app_colors.dart';
 import '../cubit/map_cubit.dart';
@@ -33,7 +31,7 @@ class _MapsScreenState extends State<MapsScreen>
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) =>
-          MapCubit(context, "İzmit Merkez", animationController),
+          MapCubit(context, "kocaeli üniversitesi b kapısı", animationController),
       child: BlocBuilder<MapCubit, MapState>(
         builder: (context, state) {
           return buildScaffold(context);

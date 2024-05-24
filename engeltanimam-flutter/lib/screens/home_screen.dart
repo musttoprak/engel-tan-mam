@@ -16,7 +16,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _hasSpeech = false;
   bool isOnay = false;
   double level = 0.0;
   double minSoundLevel = 50000;
@@ -25,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String onayText = '';
   String lastStatus = '';
   String _currentLocaleId = '';
-  List<LocaleName> _localeNames = [];
   final SpeechToText speech = SpeechToText();
   final FlutterTts flutterTts = FlutterTts();
 
@@ -67,7 +65,6 @@ class _HomeScreenState extends State<HomeScreen> {
         debugLogging: true,
         finalTimeout: const Duration(milliseconds: 0));
     if (hasSpeech) {
-      _localeNames = await speech.locales();
 
       var systemLocale = await speech.systemLocale();
       _currentLocaleId = systemLocale?.localeId ?? '';
@@ -76,7 +73,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     setState(() {
-      _hasSpeech = hasSpeech;
     });
   }
 

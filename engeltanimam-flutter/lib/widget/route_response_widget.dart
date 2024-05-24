@@ -52,7 +52,7 @@ class _RouteResponseWidgetState extends State<RouteResponseWidget>
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.headerTextColor.withOpacity(.3),
+        color: Colors.red.withOpacity(.7),
         borderRadius: BorderRadius.circular(24),
         boxShadow: const [
           BoxShadow(
@@ -91,7 +91,7 @@ class _RouteResponseWidgetState extends State<RouteResponseWidget>
                             child: Text(e.durationText.toString(),
                                 style: const TextStyle(
                                     fontSize: 24,
-                                    color: AppColors.headerTextColor,
+                                    color: Colors.red,
                                     fontWeight: FontWeight.bold),
                                 overflow: TextOverflow.visible,
                                 maxLines: 1),
@@ -159,7 +159,7 @@ class _RouteResponseWidgetState extends State<RouteResponseWidget>
                               isMoreVisible ? "Daha az " : "Daha fazlası",
                               style: const TextStyle(
                                   fontSize: 14,
-                                  color: AppColors.headerTextColor,
+                                  color: Colors.red,
                                   fontWeight: FontWeight.bold),
                               textAlign: TextAlign.center,
                             ),

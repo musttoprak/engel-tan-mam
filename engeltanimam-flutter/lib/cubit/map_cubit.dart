@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart';
+import 'package:vibration/vibration.dart';
 
 import '../constants/app_colors.dart';
 import '../models/route_response_model.dart';
@@ -31,6 +33,7 @@ class MapCubit extends Cubit<MapState> {
   bool isAlertShown = false;
   String directionMessage = "";
   double _currentBearing = 0;
+  final FlutterTts flutterTts = FlutterTts();
 
   MapCubit(this.context, this.routeText, this.animationController)
       : super(MapInitialState()) {
@@ -39,9 +42,9 @@ class MapCubit extends Cubit<MapState> {
 
   Future<void> followRouteSteps(List<RouteStepModel> steps) async {
     for (final step in steps) {
-      await polyWalk(step.startLocation);
-      emit(MapStepsChangeState(step,polylinePoints));
       print("step ${step.startLocation.latitude}");
+      await polyWalk(step.startLocation);
+      emit(MapStepsChangeState(step, polylinePoints));
     }
   }
 
@@ -69,7 +72,6 @@ class MapCubit extends Cubit<MapState> {
           final stepModel = RouteStepModel.fromJson(step);
           stepsList.add(stepModel);
         }
-        print("${stepsList.length}  aaaaa");
         result = RouteResponseModel(
           distance: arr[0].toString(),
           duration: arr[1].toString(),
@@ -78,6 +80,7 @@ class MapCubit extends Cubit<MapState> {
         print(result!.steps.length);
         emit(MapResultState(result!));
         await followRouteSteps(result!.steps);
+        await _startTrackingUser();
       } else {
         print('error : Rota bulunamadı.');
       }
@@ -121,7 +124,6 @@ class MapCubit extends Cubit<MapState> {
         await _zoomToRoute(
           LatLng(currentLocation!.latitude!, currentLocation!.longitude!),
         );
-        await _startTrackingUser();
         await getRouteSteps(
             "${currentLocation!.latitude!},${currentLocation!.longitude!}",
             "${location['lat']},${location['lng']}");
@@ -141,20 +143,30 @@ class MapCubit extends Cubit<MapState> {
       ).listen((geo.Position position) async {
         // Kullanıcının yeni konumu alındığında yönelimi güncelle
         _currentBearing =
-            position.heading ?? 0; // position.heading null kontrolü ekleyin
+            position.heading; // position.heading null kontrolü ekleyin
       });
     } catch (e) {
       print("Position tracking error: $e");
     }
   }
 
-  void _showUserOffRouteAlert(LatLng currentPosition) {
+  Future<void> _showUserOffRouteAlert(LatLng currentPosition) async {
     directionMessage = _calculateDirectionMessage(currentPosition);
+    Vibration.vibrate(duration: 500);
+
     print(directionMessage);
     emit(MapDirectionChange(directionMessage));
+    await _speak(directionMessage);
+  }
+
+  Future<void> _speak(String text) async {
+    await flutterTts.setLanguage("tr_TR");
+    await flutterTts.speak(text);
+    await flutterTts.awaitSpeakCompletion(true);
   }
 
   String _calculateDirectionMessage(LatLng currentPosition) {
+    if (polylines.isEmpty) return "No route available.";
     if (previousPosition == null) return "Rotaya dönün.";
 
     // Kullanıcının mevcut yönünü hesaplayın
@@ -198,6 +210,10 @@ class MapCubit extends Cubit<MapState> {
   }
 
   LatLng _findNearestPointOnRoute(LatLng currentPosition) {
+    if (polylines.isEmpty) {
+      throw StateError("No polylines available");
+    }
+
     LatLng nearestPoint = polylines.values.first.points.first;
     double minDistance = double.infinity;
 
@@ -276,6 +292,23 @@ class MapCubit extends Cubit<MapState> {
       width: 8,
     );
     polylines[id] = polyline;
+
+    // Son noktaya büyük bir marker ekleyelim
+    if (polylineCoordinates.isNotEmpty) {
+      LatLng lastPoint = polylineCoordinates.last;
+      Marker marker = Marker(
+        markerId: MarkerId("end_point"),
+        position: lastPoint,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        // icon: await getCustomMarkerIcon("assets/large_marker.png"), // Eğer özel bir ikon kullanmak isterseniz
+        infoWindow: InfoWindow(
+          title: "End Point",
+          snippet: "${lastPoint.latitude}, ${lastPoint.longitude}",
+        ),
+      );
+
+      markers.add(marker);
+    }
     return;
   }
 
@@ -296,8 +329,10 @@ class MapCubit extends Cubit<MapState> {
     return BitmapDescriptor.fromBytes(imageData);
   }
 
-  void addMarker(LatLng position) {
+  Future<void> addMarker(LatLng position) async {
+    BitmapDescriptor icon = await getCustomMarkerIcon("assets/location.png");
     Marker marker = Marker(
+      icon: icon,
       markerId: MarkerId('${position.latitude}-${position.longitude}'),
       position: position,
       onTap: () {
@@ -337,8 +372,9 @@ class MapCubit extends Cubit<MapState> {
 
   Future<void> _startTrackingUser() async {
     Location location = Location();
-    locationSubscription = location.onLocationChanged.listen((locationData) {
-      _checkIfUserIsOffRoute(locationData);
+    locationSubscription =
+        location.onLocationChanged.listen((locationData) async {
+      await _checkIfUserIsOffRoute(locationData);
     });
   }
 
@@ -443,6 +479,7 @@ class MapDirectionChange extends MapState {
 
   MapDirectionChange(this.directionText);
 }
+
 class MapStepsChangeState extends MapState {
   final RouteStepModel routeStepModel;
   final PolylinePoints polylinePoints;
